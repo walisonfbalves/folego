@@ -1,0 +1,14 @@
+# build do PyInstaller
+build/
+dist/
+*.spec
+
+# cache do Python
+__pycache__/
+*.pyc
+
+# projeto do vídeo (tem foto pessoal, música e fontes do Windows que não podem ser redistribuídas)
+videos/
+
+# pacote para compartilhar (o .exe vai nos Releases)
+compartilhar/

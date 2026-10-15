@@ -1,0 +1,92 @@
+# Fôlego
+
+**Quanto ainda resta do seu Claude, sem sair do que você está fazendo.**
+
+Fôlego é um widget pequeno para Windows que fica no canto da tela e mostra o uso do seu plano do Claude: a sessão de 5 horas, a semana e quanto falta para cada um resetar. Um clique abre os detalhes, outro fecha. Ele também pode ficar só na bandeja, ao lado do relógio.
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Fôlego em uso: a pílula no canto da tela, o clique que abre o cartão com sessão e semana, e o ícone na bandeja" width="480" />
+</p>
+
+> 🇬🇧 *Fôlego is a tiny Windows widget that shows your Claude plan usage (5-hour session and weekly limits) and when each one resets. It gets the numbers from Claude Code's official status line feature — it never touches your login or tokens. Unofficial — not affiliated with Anthropic.*
+
+## Por que eu fiz
+
+Eu uso o Claude Code todo dia e batia no limite no meio da tarefa, sem aviso. Para saber quanto ainda restava, eu tinha que parar e digitar `/usage`. O Fôlego deixa essa informação sempre à vista.
+
+## O que ele mostra
+
+| Contraído | Expandido |
+| --- | --- |
+| <img src="docs/pilula.png" alt="Pílula do widget com 62% da sessão e 18% da semana" width="260" /> | <img src="docs/cartao.png" alt="Cartão com anéis de sessão e semana, tempo até o reset e uso por app" width="260" /> |
+
+- **Sessão (5h)** e **semana (7d)**: porcentagem usada, em anéis que mudam de cor a partir de 75% e de 90%.
+- **Quanto falta para resetar** e o horário exato do reset.
+- **Ícone na bandeja** que enche conforme o uso da sessão. Passe o mouse para ver os números.
+
+## Como usar
+
+- **Clique** no widget: abre ou fecha os detalhes.
+- **Arraste**: muda de lugar (ele lembra onde ficou).
+- **Botão direito no widget**: minimizar para a bandeja, atualizar agora, iniciar com o Windows, voltar para o canto, conectar/desconectar do Claude Code.
+- **Ícone da bandeja**: clique mostra/esconde o widget; botão direito → **Sair** fecha o app.
+
+Os números atualizam sempre que o Claude Code atualiza a linha de status dele, ou seja, enquanto você usa o Claude Code. Fora disso, o widget mostra o último valor conhecido e há quanto tempo ele foi lido.
+
+## Instalação
+
+### Opção 1: executável (mais fácil)
+
+1. Baixe o `Folego.exe` na página de [Releases](../../releases).
+2. Dê dois cliques. Se o Windows mostrar "O Windows protegeu o computador", clique em **Mais informações → Executar assim mesmo** (o executável não tem assinatura digital paga).
+
+### Opção 2: pelo código (Python 3.10+)
+
+```bash
+pip install -r requirements.txt
+pythonw folego.pyw
+```
+
+### Requisitos
+
+- **Claude Code** instalado e logado num plano **Pro ou Max** (é nesses planos que o Claude Code informa os limites).
+- Na primeira vez que abre, o Fôlego se conecta sozinho ao Claude Code (veja abaixo). Depois disso, **abra o Claude Code e mande uma mensagem**: os números aparecem no widget.
+
+## Como funciona
+
+O Fôlego usa a [linha de status](https://code.claude.com/docs/en/statusline) do Claude Code, um recurso oficial: a cada atualização, o Claude Code roda um comando configurado pelo usuário e entrega a ele um JSON com `rate_limits` (uso da sessão de 5h e da semana, com o horário de reset).
+
+- **Conexão:** na primeira vez, o Fôlego configura `statusLine` no seu `~/.claude/settings.json` apontando para o ajudante `folego-status`. Se você já tinha uma linha de status, ela é guardada e continua funcionando: o ajudante repassa os mesmos dados para ela e mostra o que ela imprimir. Desmarcar **Conectado ao Claude Code** no menu devolve a configuração original.
+- **`folego_status.py`** (o ajudante) recebe o JSON do Claude Code e salva só os números em `%APPDATA%\Folego\uso.json`.
+- **`uso_core.py`** lê esse arquivo e cuida de conectar/desconectar a linha de status.
+- **`folego.pyw`** desenha a interface com Tkinter + Pillow, usando uma janela com transparência por pixel do Windows (`UpdateLayeredWindow`), e o ícone da bandeja com `pystray`.
+- **O Fôlego não lê seu login, não usa tokens e não acessa a internet.** Quem conversa com a Anthropic é o próprio Claude Code.
+
+### Gerar o executável
+
+```bash
+pip install pyinstaller
+pyinstaller --noconfirm --onefile --console --name folego-status folego_status.py
+pyinstaller --noconfirm --onefile --windowed --name Folego --icon folego.ico --hidden-import pystray._win32 --add-binary "dist/folego-status.exe;." folego.pyw
+```
+
+## Limitações e avisos
+
+- **Projeto não oficial**, sem vínculo com a Anthropic. "Claude" e "Claude Code" são marcas da Anthropic.
+- Os números só se atualizam enquanto o Claude Code está em uso. O uso feito só pelo chat do Claude aparece na próxima vez que o Claude Code atualizar.
+- Depende do campo `rate_limits` da linha de status do Claude Code; se a Anthropic mudar esse formato, o widget pode precisar de atualização.
+- Por enquanto só funciona no **Windows** (10 e 11).
+
+## Próximos passos
+
+- [ ] Versão para Linux
+- [ ] Mostrar também o uso de outros assistentes (ex.: Codex)
+
+## Autor
+
+Feito por **Walison Fernandes**, com o Claude Code de parceiro.
+[linkedin.com/in/walisonfbalves](https://www.linkedin.com/in/walisonfbalves)
+
+## Licença
+
+[MIT](LICENSE)
