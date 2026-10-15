@@ -482,7 +482,7 @@ class State:
         if self.error and self.error[0] == "setup":
             return "conecte ao claude code"
         if self.error:
-            return "abra o claude code"
+            return "abra o claude code no terminal"
         return "carregando…"
 
     def long_status(self):
@@ -496,7 +496,7 @@ class State:
         if self.error and self.error[0] == "setup":
             return "botão direito → Conectar ao Claude Code"
         if self.error:
-            return "abra o Claude Code e mande uma mensagem"
+            return "rode  claude  no terminal e mande uma mensagem"
         return ""
 
     def footer(self):

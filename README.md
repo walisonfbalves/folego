@@ -50,7 +50,9 @@ pythonw folego.pyw
 ### Requisitos
 
 - **Claude Code** instalado e logado num plano **Pro ou Max** (é nesses planos que o Claude Code informa os limites).
-- Na primeira vez que abre, o Fôlego se conecta sozinho ao Claude Code (veja abaixo). Depois disso, **abra o Claude Code e mande uma mensagem**: os números aparecem no widget.
+- Na primeira vez que abre, o Fôlego se conecta sozinho ao Claude Code (veja abaixo). Depois disso, **abra o Claude Code no terminal (`claude`) e mande uma mensagem**: os números aparecem no widget.
+
+> ⚠️ **Use o Claude Code no terminal.** A aba Code do app desktop do Claude não roda a linha de status, então não envia os números para o Fôlego. Uma mensagem no terminal já atualiza o widget, e ele mantém o último valor depois.
 
 ## Como funciona
 
@@ -73,7 +75,7 @@ pyinstaller --noconfirm --onefile --windowed --name Folego --icon folego.ico --h
 ## Limitações e avisos
 
 - **Projeto não oficial**, sem vínculo com a Anthropic. "Claude" e "Claude Code" são marcas da Anthropic.
-- Os números só se atualizam enquanto o Claude Code está em uso. O uso feito só pelo chat do Claude aparece na próxima vez que o Claude Code atualizar.
+- Os números só se atualizam enquanto o Claude Code **no terminal** está em uso. O uso feito pelo app desktop ou pelo chat do Claude aparece na próxima vez que o Claude Code no terminal atualizar.
 - Depende do campo `rate_limits` da linha de status do Claude Code; se a Anthropic mudar esse formato, o widget pode precisar de atualização.
 - Por enquanto só funciona no **Windows** (10 e 11).
 
