@@ -1,7 +1,8 @@
 """Fôlego — widget flutuante com o uso do plano do Claude (sessão 5h e semanal).
 
-Os números vêm da linha de status do Claude Code (recurso oficial), via folego_status.py;
-o app nunca toca no login nem em tokens.
+Os números vêm do próprio Claude Code: da linha de status (quando você usa o terminal) e de
+uma consulta mínima feita pelo Claude Code em segundo plano a cada 10 min (modo automático).
+O app nunca toca no login nem em tokens.
 
 Clique: expande/contrai.  Arraste: muda de lugar.  Botão direito: menu (minimizar
 para a bandeja, atualizar, iniciar com o Windows).  Ícone na bandeja: clique mostra/esconde
@@ -48,6 +49,9 @@ TRACK = (255, 255, 255, 24)
 ACCENT = (217, 119, 87)          # argila do Claude
 WARN = (232, 168, 64)
 DANGER = (229, 72, 77)
+
+AUTO_INTERVALO = 600   # segundos entre consultas automáticas
+AUTO_AO_ABRIR = 120    # ao abrir o cartão, consulta se o dado tiver mais que isso
 
 DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 
@@ -441,8 +445,9 @@ class State:
         self.data = None           # {"five_hour": {"pct", "reset"}, "seven_day": {...}}
         self.plan = ""
         self.updated = None
-        self.error = None          # ("setup"|"wait", mensagem)
+        self.error = None          # ("setup"|"wait"|"noclaude", mensagem)
         self.loading = True
+        self.auto = False
 
     def _lim(self, key):
         return (self.data or {}).get(key) or {}
@@ -479,6 +484,10 @@ class State:
         return (88, 196, 132)
 
     def short_status(self):
+        if self.error and self.error[0] == "noclaude":
+            return "claude code não encontrado"
+        if self.error and self.auto:
+            return "consultando o claude…"
         if self.error and self.error[0] == "setup":
             return "conecte ao claude code"
         if self.error:
@@ -486,6 +495,10 @@ class State:
         return "carregando…"
 
     def long_status(self):
+        if self.error and self.error[0] == "noclaude":
+            return "Claude Code não encontrado"
+        if self.error and self.auto:
+            return "Consultando o Claude Code…"
         if self.error and self.error[0] == "setup":
             return "Fôlego não está conectado"
         if self.error:
@@ -493,6 +506,10 @@ class State:
         return "Carregando…"
 
     def hint(self):
+        if self.error and self.error[0] == "noclaude":
+            return "instale o Claude Code e faça login"
+        if self.error and self.auto:
+            return "leva alguns segundos na primeira vez"
         if self.error and self.error[0] == "setup":
             return "botão direito → Conectar ao Claude Code"
         if self.error:
@@ -546,7 +563,7 @@ class App:
         self.root.bind("<ButtonRelease-1>", self.on_release)
         self.root.bind("<Button-3>", self.on_menu)
         self.menu = tk.Menu(self.root, tearoff=0)
-        self.menu.add_command(label="Atualizar agora", command=lambda: self.fetch(force=True))
+        self.menu.add_command(label="Atualizar agora", command=lambda: self.consulta_auto(force=True))
         self.autostart = tk.BooleanVar(value=self._autostart_enabled())
         self.auto_on = self.autostart.get()
         self.menu.add_checkbutton(label="Iniciar com o Windows", variable=self.autostart,
@@ -555,6 +572,12 @@ class App:
         self.conectado = tk.BooleanVar(value=uso_core.conectado())
         self.menu.add_checkbutton(label="Conectado ao Claude Code", variable=self.conectado,
                                   command=self.toggle_conexao)
+        self.auto_var = tk.BooleanVar(value=self.cfg.get("auto", True))
+        self.menu.add_checkbutton(label="Atualizar automaticamente (a cada 10 min)", variable=self.auto_var,
+                                  command=self.toggle_auto)
+        self.st.auto = self.auto_var.get()
+        self.consultando = False
+        self.last_auto = 0
         self.menu.add_separator()
 
         self.tray = self._start_tray()
@@ -569,6 +592,7 @@ class App:
         self.fetch()
         self.root.after(1000, self.tick)
         self.root.after(100, self._pump)
+        self.root.after(800, self._auto_tick)
 
     # -- config / posição ------------------------------------------------
 
@@ -661,6 +685,8 @@ class App:
 
     def toggle(self):
         self.expanded = not self.expanded
+        if self.expanded and (not self.st.updated or time.time() - self.st.updated > AUTO_AO_ABRIR):
+            self.consulta_auto()
         if self.expanded and time.time() - self.last_fetch > 30:
             self.fetch()
         self.animate(self.expanded)
@@ -711,7 +737,8 @@ class App:
             self.st.data, self.st.updated = uso_core.ler_uso()
             self.st.error = None
         except uso_core.SemDados:
-            self.st.error = ("wait" if uso_core.conectado() else "setup", "")
+            if not (self.st.error and self.st.error[0] == "noclaude"):
+                self.st.error = ("wait" if uso_core.conectado() else "setup", "")
         self.st.loading = False
         self.render()
         self._update_tray()
@@ -725,6 +752,46 @@ class App:
             self.fetch()
             self.root.attributes("-topmost", True)
         self.root.after(3000, self.tick)
+
+    # -- consulta automática --------------------------------------------
+
+    def consulta_auto(self, force=False):
+        """Pede ao Claude Code (em segundo plano) os números atuais; o resultado cai em uso.json."""
+        if self.consultando or not (force or self.auto_var.get()):
+            return
+        self.consultando = True
+        self.last_auto = time.time()
+
+        def work():
+            try:
+                uso_core.consultar_claude()
+            except uso_core.SemClaude:
+                self.calls.put(self._sem_claude)
+            except Exception:
+                pass
+            finally:
+                self.consultando = False
+                self.calls.put(self.fetch)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _sem_claude(self):
+        if not self.st.data:
+            self.st.error = ("noclaude", "")
+            self.render()
+
+    def _auto_tick(self):
+        if self.auto_var.get() and time.time() - self.last_auto >= AUTO_INTERVALO:
+            self.consulta_auto()
+        self.root.after(30000, self._auto_tick)
+
+    def toggle_auto(self):
+        self.cfg["auto"] = self.auto_var.get()
+        self.st.auto = self.auto_var.get()
+        self._save_cfg()
+        if self.auto_var.get():
+            self.consulta_auto()
+        self.render()
 
     # -- conexão com o Claude Code ---------------------------------------
 

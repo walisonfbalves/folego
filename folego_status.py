@@ -20,8 +20,27 @@ USO = APP_DIR / "uso.json"
 ANTERIOR = APP_DIR / "statusline-anterior.json"
 
 
+def mesclar(novo, arquivo):
+    """Junta com o que já está salvo: na mesma janela (mesmo reset) o uso só sobe, então um
+    dado velho de uma sessão parada nunca sobrescreve um mais novo."""
+    try:
+        antigo = json.loads(Path(arquivo).read_text(encoding="utf-8")).get("rate_limits") or {}
+    except (OSError, ValueError):
+        return novo
+    out = dict(antigo)
+    for nome, j in novo.items():
+        a = antigo.get(nome)
+        if a and a.get("resets_at") == j.get("resets_at"):
+            j = dict(j, used_percentage=max(float(a.get("used_percentage") or 0), float(j.get("used_percentage") or 0)))
+        elif a and (a.get("resets_at") or 0) > (j.get("resets_at") or 0):
+            j = a                                   # o salvo já é de uma janela mais nova
+        out[nome] = j
+    return out
+
+
 def salvar(rate_limits):
     APP_DIR.mkdir(parents=True, exist_ok=True)
+    rate_limits = mesclar(rate_limits, USO)
     tmp = USO.with_name(f"uso.{os.getpid()}.tmp")
     tmp.write_text(json.dumps({"updated": time.time(), "rate_limits": rate_limits}), encoding="utf-8")
     os.replace(tmp, USO)

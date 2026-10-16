@@ -49,6 +49,79 @@ def ler_uso():
     return janelas, float(bruto.get("updated") or 0)
 
 
+# ---------------------------------------------------------------- consulta automática
+
+# Pedido mínimo ao próprio Claude Code (modelo leve, prompt curto, sem MCPs e sem gravar
+# sessão). O Claude Code responde com um evento rate_limit_event que traz a porcentagem de
+# cada janela — inclusive do uso feito pelo app desktop. Custa uma fração ínfima do limite.
+ARGS_CONSULTA = ["-p", "ok", "--model", "haiku", "--output-format", "stream-json", "--verbose",
+                 "--system-prompt", "Responda ok.", "--strict-mcp-config", "--disable-slash-commands",
+                 "--tools", "Read", "--no-session-persistence"]
+
+
+def mesclar(novo, arquivo):
+    """Junta com o que já está salvo: na mesma janela (mesmo reset) o uso só sobe, então um
+    dado velho de uma sessão parada nunca sobrescreve um mais novo."""
+    try:
+        antigo = json.loads(Path(arquivo).read_text(encoding="utf-8")).get("rate_limits") or {}
+    except (OSError, ValueError):
+        return novo
+    out = dict(antigo)
+    for nome, j in novo.items():
+        a = antigo.get(nome)
+        if a and a.get("resets_at") == j.get("resets_at"):
+            j = dict(j, used_percentage=max(float(a.get("used_percentage") or 0), float(j.get("used_percentage") or 0)))
+        elif a and (a.get("resets_at") or 0) > (j.get("resets_at") or 0):
+            j = a                                   # o salvo já é de uma janela mais nova
+        out[nome] = j
+    return out
+
+
+class SemClaude(Exception):
+    """Claude Code não encontrado neste computador."""
+
+
+def achar_claude():
+    achado = shutil.which("claude")
+    if achado:
+        return achado
+    base = Path(os.environ.get("APPDATA", "")) / "Claude" / "claude-code"   # o que vem com o app desktop
+    exes = sorted(base.glob("*/*/claude.exe"), key=lambda p: p.stat().st_mtime) if base.exists() else []
+    if exes:
+        return str(exes[-1])
+    raise SemClaude
+
+
+def consultar_claude(timeout=120):
+    """Roda o Claude Code escondido e grava o uso em uso.json. Retorna True se conseguiu."""
+    import subprocess
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run([achar_claude()] + ARGS_CONSULTA, cwd=str(APP_DIR), capture_output=True,
+                       timeout=timeout, stdin=subprocess.DEVNULL,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    for linha in r.stdout.decode("utf-8", "replace").splitlines():
+        if '"rate_limit_event"' not in linha:
+            continue
+        try:
+            janelas = json.loads(linha)["rate_limit_info"]["unifiedWindows"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        rl = {}
+        for nome in ("five_hour", "seven_day"):
+            j = janelas.get(nome)
+            if j and j.get("utilization") is not None:
+                rl[nome] = {"used_percentage": round(float(j["utilization"]) * 100, 1),
+                            "resets_at": j.get("resetsAt")}
+        if rl:
+            rl = mesclar(rl, USO)
+            tmp = USO.with_name(f"uso.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"updated": time.time(), "rate_limits": rl, "fonte": "auto"}),
+                           encoding="utf-8")
+            os.replace(tmp, USO)
+            return True
+    return False
+
+
 # ---------------------------------------------------------------- linha de status
 
 
