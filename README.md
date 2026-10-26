@@ -23,6 +23,7 @@ Eu uso o Claude Code todo dia e batia no limite no meio da tarefa, sem aviso. Pa
 - **Sessão (5h)** e **semana (7d)**: porcentagem usada, em anéis que mudam de cor a partir de 75% e de 90%.
 - **Quanto falta para resetar** e o horário exato do reset.
 - **Ícone na bandeja** que enche conforme o uso da sessão. Passe o mouse para ver os números.
+- **Aba ChatGPT** (se você usa o Codex): sessão de 5h e semana do seu plano do ChatGPT, lidas das sessões do Codex neste computador. Clique em **Claude** ou **ChatGPT** no topo do cartão para alternar. A pílula e o ícone da bandeja mostram o maior uso entre os dois. O dado do ChatGPT só muda quando você usa o Codex (o chat no site não expõe esse número).
 
 ## Como usar
 
@@ -65,6 +66,7 @@ Na mesma janela (mesmo horário de reset), o uso só sobe; por isso o Fôlego gu
 - **`folego_status.py`** (o ajudante) recebe o JSON do Claude Code e salva só os números em `%APPDATA%\Folego\uso.json`.
 - **`uso_core.py`** faz a consulta automática, lê o arquivo e cuida de conectar/desconectar a linha de status.
 - **`folego.pyw`** desenha a interface com Tkinter + Pillow, usando uma janela com transparência por pixel do Windows (`UpdateLayeredWindow`), e o ícone da bandeja com `pystray`.
+- **ChatGPT:** o Codex grava em `~/.codex/sessions/**/rollout-*.jsonl` um evento `token_count` com `rate_limits` (janelas de 5h e semanal). O Fôlego lê só o final do arquivo mais recente, sem tocar em `auth.json`.
 - **O Fôlego não lê seu login, não usa tokens e não acessa a internet.** Quem conversa com a Anthropic é sempre o próprio Claude Code.
 
 ### Gerar o executável
@@ -85,7 +87,8 @@ pyinstaller --noconfirm --onefile --windowed --name Folego --icon folego.ico --h
 ## Próximos passos
 
 - [ ] Versão para Linux
-- [ ] Mostrar também o uso de outros assistentes (ex.: Codex)
+- [x] Mostrar também o uso do ChatGPT (via Codex)
+- [ ] Mostrar outros assistentes (ex.: Gemini CLI)
 
 ## Autor
 

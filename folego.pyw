@@ -47,6 +47,7 @@ MUTED = (150, 148, 144)
 FAINT = (95, 94, 92)
 TRACK = (255, 255, 255, 24)
 ACCENT = (217, 119, 87)          # argila do Claude
+ACCENT_GPT = (74, 190, 165)      # verde-água do ChatGPT
 WARN = (232, 168, 64)
 DANGER = (229, 72, 77)
 
@@ -210,12 +211,12 @@ def quando(reset):
     return f"{DIAS[reset.weekday()]} {reset.strftime('%d/%m')} às {hora}"
 
 
-def cor(pct):
+def cor(pct, accent=ACCENT):
     if pct >= 90:
         return DANGER
     if pct >= 75:
         return WARN
-    return ACCENT
+    return accent
 
 # ---------------------------------------------------------------- desenho
 
@@ -292,10 +293,10 @@ class Painter:
         ring = px(15)
         probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
 
-        if st.data:
-            items = [(st.session_pct, "5h"), (st.week_pct, "7d")]
-            labels = [f"{p:.0f}%" for p, _ in items]
-            tags = [t for _, t in items]
+        items = st.resumo()
+        if items:
+            labels = [f"{p:.0f}%" for p, _, _ in items]
+            tags = [t for _, t, _ in items]
             ft = font(FONT_UI, px(10))
             inner = px(14)
             for lab, tag in zip(labels, tags):
@@ -311,9 +312,10 @@ class Painter:
         d = ImageDraw.Draw(img)
         cy = P + h // 2
         x = P + px(14)
-        if st.data:
-            for i, ((pct, _), lab, tag) in enumerate(zip(items, labels, tags)):
-                img.alpha_composite(self.ring(ring, pct, max(2, px(2.6)), cor(pct)), (int(x), cy - ring // 2))
+        if items:
+            for i, ((pct, _, accent), lab, tag) in enumerate(zip(items, labels, tags)):
+                img.alpha_composite(self.ring(ring, pct, max(2, px(2.6)), cor(pct, accent)),
+                                    (int(x), cy - ring // 2))
                 x += ring + px(6)
                 d.text((x, cy), lab, font=f, fill=TEXT, anchor="lm")
                 x += self.text_w(d, lab, f) + px(4)
@@ -343,10 +345,14 @@ class Painter:
         f_pct = font(FONT_NUM, px(13))
         f_body = font(FONT_UI, px(12))
 
-        extras = st.extra_limits() if st.data else []
-        breakdown = st.breakdown() if st.data else []
+        fonte = st.ativa()
+        abas = st.fontes()
+        extras = fonte.extra_limits() if fonte.data else []
+        breakdown = fonte.breakdown() if fonte.data else []
         H = px(18 + 22 + 16)                                  # topo + título + respiro
-        if st.data:
+        if len(abas) > 1:
+            H += px(26 + 14)                                  # abas
+        if fonte.data:
             H += px(104 + 14 + 18 + 18 + 16)                  # anéis + textos
             H += px(30) * len(extras)
             if breakdown:
@@ -361,27 +367,43 @@ class Painter:
         y = P + px(18)
 
         # cabeçalho
-        d.ellipse((L, y + px(4), L + px(8), y + px(12)), fill=st.status_color())
+        d.ellipse((L, y + px(4), L + px(8), y + px(12)), fill=fonte.status_color())
         d.text((L + px(15), y + px(8)), "Fôlego", font=f_title, fill=TEXT, anchor="lm")
-        if st.plan:
-            tw = self.text_w(d, st.plan, f_small)
+        if fonte.plan:
+            tw = self.text_w(d, fonte.plan, f_small)
             d.rounded_rectangle((R - tw - px(14), y, R, y + px(17)), px(8.5), outline=(255, 255, 255, 40),
                                 width=max(1, px(1)))
-            d.text((R - px(7), y + px(8.5)), st.plan, font=f_small, fill=MUTED, anchor="rm")
+            d.text((R - px(7), y + px(8.5)), fonte.plan, font=f_small, fill=MUTED, anchor="rm")
         y += px(22 + 16)
 
-        if not st.data:
-            d.text(((L + R) / 2, y + px(22)), st.long_status(), font=f_body, fill=TEXT, anchor="mm")
-            d.text(((L + R) / 2, y + px(44)), st.hint(), font=f_small, fill=MUTED, anchor="mm")
+        self.tab_rects = []                                   # onde clicar para trocar de aba
+        if len(abas) > 1:
+            tab_w = (R - L) / len(abas)
+            for i, f_ in enumerate(abas):
+                x0, x1 = L + tab_w * i, L + tab_w * (i + 1)
+                ativa = f_ is fonte
+                if ativa:
+                    d.rounded_rectangle((x0, y, x1 - px(4), y + px(26)), px(13), fill=(255, 255, 255, 22))
+                tw = self.text_w(d, f_.titulo, f_label)
+                sx = (x0 + x1 - px(4)) / 2 - (px(6 + 5) + tw) / 2
+                d.ellipse((sx, y + px(10), sx + px(6), y + px(16)), fill=f_.accent + (255 if ativa else 110,))
+                d.text((sx + px(11), y + px(13)), f_.titulo, font=f_label, fill=TEXT if ativa else MUTED,
+                       anchor="lm")
+                self.tab_rects.append((int(x0), int(y), int(x1), int(y + px(26)), i))
+            y += px(26 + 14)
+
+        if not fonte.data:
+            d.text(((L + R) / 2, y + px(22)), fonte.long_status(), font=f_body, fill=TEXT, anchor="mm")
+            d.text(((L + R) / 2, y + px(44)), fonte.hint(), font=f_small, fill=MUTED, anchor="mm")
             y += px(70)
         else:
-            cols = [(st.session_pct, "SESSÃO · 5H", st.session_reset),
-                    (st.week_pct, "SEMANA · 7D", st.week_reset)]
+            cols = [(fonte.session_pct, "SESSÃO · 5H", fonte.session_reset),
+                    (fonte.week_pct, "SEMANA · 7D", fonte.week_reset)]
             colw = (R - L) / 2
             rs = px(104)
             for i, (pct, label, reset) in enumerate(cols):
                 cx = L + colw * i + colw / 2
-                img.alpha_composite(self.ring(rs, pct, px(7), cor(pct)), (int(cx - rs / 2), y))
+                img.alpha_composite(self.ring(rs, pct, px(7), cor(pct, fonte.accent)), (int(cx - rs / 2), y))
                 d.text((cx, y + rs / 2 - px(3)), f"{pct:.0f}", font=f_big, fill=TEXT, anchor="mm")
                 d.text((cx, y + rs / 2 + px(17)), "%", font=f_small, fill=MUTED, anchor="mm")
                 ty = y + rs + px(14)
@@ -394,7 +416,8 @@ class Painter:
                 d.text((L, y + px(6)), name, font=f_small, fill=MUTED, anchor="lm")
                 d.text((R, y + px(6)), f"{pct:.0f}%", font=f_pct, fill=TEXT, anchor="rm")
                 bw = R - L
-                img.alpha_composite(self.bar(int(bw), px(4), pct, cor(pct)), (int(L), int(y + px(16))))
+                img.alpha_composite(self.bar(int(bw), px(4), pct, cor(pct, fonte.accent)),
+                                    (int(L), int(y + px(16))))
                 y += px(30)
 
             if breakdown:
@@ -430,7 +453,7 @@ class Painter:
         y += px(12)
         d.line((L, y, R, y), fill=(255, 255, 255, 18), width=max(1, px(1)))
         y += px(14)
-        d.text((L, y + px(6)), st.footer(), font=f_small, fill=FAINT, anchor="lm")
+        d.text((L, y + px(6)), fonte.footer(), font=f_small, fill=FAINT, anchor="lm")
         d.text((R, y + px(6)), "botão direito: menu", font=f_small, fill=FAINT, anchor="rm")
         H = int(y + px(6 + 8 + 16)) - P
         out = self.panel(W + 2 * P, H + 2 * P, px(16))
@@ -440,14 +463,18 @@ class Painter:
 # ---------------------------------------------------------------- estado
 
 
-class State:
+class Fonte:
+    """Uso de um serviço (Claude ou ChatGPT): as duas janelas e quando o dado foi gravado."""
+    titulo = ""
+    accent = ACCENT
+
     def __init__(self):
         self.data = None           # {"five_hour": {"pct", "reset"}, "seven_day": {...}}
         self.plan = ""
         self.updated = None
         self.error = None          # ("setup"|"wait"|"noclaude", mensagem)
         self.loading = True
-        self.auto = False
+        self.ativo = True          # o ChatGPT só tem aba se o Codex existe neste computador
 
     def _lim(self, key):
         return (self.data or {}).get(key) or {}
@@ -483,6 +510,62 @@ class State:
             return MUTED
         return (88, 196, 132)
 
+    def footer(self):
+        if not self.updated:
+            return ""
+        mins = int(time.time() - self.updated) // 60
+        if mins < 1:
+            return "atualizado agora"
+        if mins < 60:
+            return f"atualizado há {mins} min"
+        h = mins // 60
+        return f"último dado há {h} h" if h < 48 else f"último dado há {h // 24} dias"
+
+
+class CodexFonte(Fonte):
+    """Limites do plano do ChatGPT, lidos das sessões do Codex neste computador."""
+    titulo = "ChatGPT"
+    accent = ACCENT_GPT
+
+    def short_status(self):
+        return "sem dados do codex"
+
+    def long_status(self):
+        return "Sem dados do Codex ainda"
+
+    def hint(self):
+        return "use o Codex uma vez e os números aparecem"
+
+
+class State(Fonte):
+    """Estado do app: o próprio Claude (herda de Fonte) mais o ChatGPT e a aba aberta."""
+    titulo = "Claude"
+
+    def __init__(self):
+        super().__init__()
+        self.auto = False
+        self.codex = CodexFonte()
+        self.aba = 0
+
+    def fontes(self):
+        """Serviços com aba: o ChatGPT só entra se o Codex existe neste computador."""
+        return [self, self.codex] if self.codex.ativo else [self]
+
+    def ativa(self):
+        fs = self.fontes()
+        return fs[self.aba] if self.aba < len(fs) else fs[0]
+
+    def resumo(self):
+        """Pílula: para cada janela, o maior uso entre os serviços com dado -> [(pct, tag, accent)]."""
+        com_dado = [f for f in self.fontes() if f.data]
+        if not com_dado:
+            return None
+        out = []
+        for tag, attr in (("5h", "session_pct"), ("7d", "week_pct")):
+            f = max(com_dado, key=lambda x: getattr(x, attr))
+            out.append((getattr(f, attr), tag, f.accent))
+        return out
+
     def short_status(self):
         if self.error and self.error[0] == "noclaude":
             return "claude code não encontrado"
@@ -515,17 +598,6 @@ class State:
         if self.error:
             return "rode  claude  no terminal e mande uma mensagem"
         return ""
-
-    def footer(self):
-        if not self.updated:
-            return ""
-        mins = int(time.time() - self.updated) // 60
-        if mins < 1:
-            return "atualizado agora"
-        if mins < 60:
-            return f"atualizado há {mins} min"
-        h = mins // 60
-        return f"último dado há {h} h" if h < 48 else f"último dado há {h // 24} dias"
 
 # ---------------------------------------------------------------- app
 
@@ -716,7 +788,19 @@ class App:
             self.dragging = False
             self.render()
         elif not self.anim:
-            self.toggle()
+            aba = self.aba_em(e.x, e.y) if self.expanded else None
+            if aba is None:
+                self.toggle()
+            elif aba != self.st.aba:
+                self.st.aba = aba
+                self.render()
+
+    def aba_em(self, x, y):
+        """Índice da aba sob o clique (coordenadas da janela), ou None."""
+        for x0, y0, x1, y1, i in getattr(self.paint, "tab_rects", []):
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return i
+        return None
 
     def on_menu(self, e):
         try:
@@ -740,8 +824,20 @@ class App:
             if not (self.st.error and self.st.error[0] == "noclaude"):
                 self.st.error = ("wait" if uso_core.conectado() else "setup", "")
         self.st.loading = False
+        self._fetch_codex()
         self.render()
         self._update_tray()
+
+    def _fetch_codex(self):
+        """Limites do ChatGPT, lidos das sessões do Codex (arquivos locais, sem rede)."""
+        cx = self.st.codex
+        cx.ativo = uso_core.codex_instalado()
+        cx.loading = False
+        try:
+            cx.data, cx.updated, cx.plan = uso_core.ler_codex()
+            cx.error = None
+        except uso_core.SemDados:
+            cx.error = ("wait", "")
 
     def tick(self):
         try:
@@ -920,9 +1016,10 @@ class App:
         im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         d.rounded_rectangle((0, 0, S - 1, S - 1), S * 0.24, fill=BG + (255,))
-        pct = self.st.session_pct if self.st.data else 72
-        color = cor(pct) if self.st.data else ACCENT
-        if self.st.error and not self.st.data:
+        resumo = self.st.resumo()                       # maior uso de sessão entre os serviços
+        pct = resumo[0][0] if resumo else 72
+        color = cor(pct, resumo[0][2]) if resumo else ACCENT
+        if self.st.error and not resumo:
             color = MUTED
         w, m = S * 0.14, S * 0.18
         box = (m, m, S - m, S - m)
@@ -938,9 +1035,10 @@ class App:
         return im.resize((n, n), Image.LANCZOS)
 
     def _tray_title(self):
-        if self.st.data:
-            return (f"Fôlego — sessão {self.st.session_pct:.0f}% · semana {self.st.week_pct:.0f}%\n"
-                    f"{falta(self.st.session_reset)}")
+        linhas = [f"{f.titulo}: sessão {f.session_pct:.0f}% · semana {f.week_pct:.0f}%"
+                  for f in self.st.fontes() if f.data]
+        if linhas:
+            return "Fôlego\n" + "\n".join(linhas)
         return "Fôlego — " + self.st.short_status()
 
     def _start_tray(self):

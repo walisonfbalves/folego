@@ -49,6 +49,93 @@ def ler_uso():
     return janelas, float(bruto.get("updated") or 0)
 
 
+# ---------------------------------------------------------------- Codex (ChatGPT)
+
+# O Codex (CLI e app da OpenAI) grava em cada sessão, a cada resposta, um evento token_count
+# com os limites do plano do ChatGPT (janela de 5h e semanal). Só lemos esses arquivos locais:
+# sem login, sem token e sem internet. O dado só muda quando o Codex é usado.
+CODEX_DIR = Path.home() / ".codex"
+_CODEX_CACHE = {"chave": None, "valor": None}
+
+
+def codex_instalado():
+    return (CODEX_DIR / "sessions").is_dir()
+
+
+def _eventos_recentes(arquivo):
+    """Linhas da ponta do arquivo (as sessões passam de 100 MB, então não lemos tudo)."""
+    tamanho = arquivo.stat().st_size
+    for bloco in (256 * 1024, 4 * 1024 * 1024):
+        with open(arquivo, "rb") as f:
+            f.seek(max(0, tamanho - bloco))
+            linhas = f.read().splitlines()
+        achou = False
+        for linha in reversed(linhas):
+            if b'"rate_limits"' in linha:
+                achou = True
+                yield linha
+        if achou or bloco >= tamanho:
+            return
+
+
+def _limites_codex(arquivo):
+    """Último limite do plano gravado neste arquivo, ou None."""
+    for linha in _eventos_recentes(arquivo):
+        try:
+            ev = json.loads(linha)
+            rl = ev["payload"]["rate_limits"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if not rl or rl.get("limit_id") not in (None, "codex"):     # outros limites (ex.: "premium")
+            continue
+        janelas = {}
+        for j in (rl.get("primary"), rl.get("secondary")):
+            if not j or j.get("used_percent") is None:
+                continue
+            nome = "five_hour" if (j.get("window_minutes") or 0) <= 600 else "seven_day"
+            janelas[nome] = {"used_percentage": float(j["used_percent"]), "resets_at": j.get("resets_at")}
+        if janelas:
+            quando = dt.datetime.fromisoformat(ev["timestamp"].replace("Z", "+00:00")).timestamp()
+            return {"rate_limits": janelas, "updated": quando, "plan": rl.get("plan_type") or ""}
+    return None
+
+
+def ler_codex():
+    """Retorna ({janela: {"pct", "reset"}}, momento_do_dado, plano). Lança SemDados."""
+    try:
+        arquivos = sorted((CODEX_DIR / "sessions").rglob("rollout-*.jsonl"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        raise SemDados from None
+    bruto = None
+    for arq in arquivos[:8]:                         # a sessão mais recente quase sempre já tem
+        try:
+            st = arq.stat()
+            chave = (str(arq), st.st_mtime, st.st_size)
+            if _CODEX_CACHE["chave"] == chave:
+                bruto = _CODEX_CACHE["valor"]
+            else:
+                bruto = _limites_codex(arq)
+                if bruto:
+                    _CODEX_CACHE.update(chave=chave, valor=bruto)
+        except OSError:
+            continue
+        if bruto:
+            break
+    if not bruto:
+        raise SemDados
+    agora = time.time()
+    janelas = {}
+    for nome in ("five_hour", "seven_day"):
+        j = bruto["rate_limits"].get(nome) or {}
+        reset = j.get("resets_at")
+        if reset and float(reset) <= agora:          # a janela já resetou desde o último evento
+            janelas[nome] = {"pct": 0.0, "reset": None}
+        else:
+            janelas[nome] = {"pct": float(j.get("used_percentage") or 0), "reset": _quando(reset)}
+    return janelas, bruto["updated"], bruto["plan"].capitalize()
+
+
 # ---------------------------------------------------------------- consulta automática
 
 # Pedido mínimo ao próprio Claude Code (modelo leve, prompt curto, sem MCPs e sem gravar
