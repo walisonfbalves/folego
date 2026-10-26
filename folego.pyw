@@ -53,6 +53,7 @@ DANGER = (229, 72, 77)
 
 AUTO_INTERVALO = 600   # segundos entre consultas automáticas
 AUTO_AO_ABRIR = 120    # ao abrir o cartão, consulta se o dado tiver mais que isso
+RELEITURA = 15         # segundos entre releituras dos arquivos locais (Claude e Codex)
 
 DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 
@@ -844,7 +845,7 @@ class App:
             mtime = uso_core.USO.stat().st_mtime
         except OSError:
             mtime = None
-        if mtime != getattr(self, "last_mtime", None) or time.time() - self.last_fetch >= 30:
+        if mtime != getattr(self, "last_mtime", None) or time.time() - self.last_fetch >= RELEITURA:
             self.fetch()
             self.root.attributes("-topmost", True)
         self.root.after(3000, self.tick)

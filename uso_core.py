@@ -55,7 +55,6 @@ def ler_uso():
 # com os limites do plano do ChatGPT (janela de 5h e semanal). Só lemos esses arquivos locais:
 # sem login, sem token e sem internet. O dado só muda quando o Codex é usado.
 CODEX_DIR = Path.home() / ".codex"
-_CODEX_CACHE = {"chave": None, "valor": None}
 
 
 def codex_instalado():
@@ -65,7 +64,7 @@ def codex_instalado():
 def _eventos_recentes(arquivo):
     """Linhas da ponta do arquivo (as sessões passam de 100 MB, então não lemos tudo)."""
     tamanho = arquivo.stat().st_size
-    for bloco in (256 * 1024, 4 * 1024 * 1024):
+    for bloco in (256 * 1024, 1024 * 1024):
         with open(arquivo, "rb") as f:
             f.seek(max(0, tamanho - bloco))
             linhas = f.read().splitlines()
@@ -102,26 +101,25 @@ def _limites_codex(arquivo):
 
 def ler_codex():
     """Retorna ({janela: {"pct", "reset"}}, momento_do_dado, plano). Lança SemDados."""
+    # A data de modificação não diz qual sessão é a mais nova: no Windows ela fica atrasada
+    # enquanto o Codex mantém o arquivo aberto, e o Codex às vezes regrava sessões antigas.
+    # Por isso lemos as candidatas (mais modificadas + criadas nos últimos 2 dias pelo nome)
+    # e ficamos com o evento de horário mais recente.
     try:
-        arquivos = sorted((CODEX_DIR / "sessions").rglob("rollout-*.jsonl"),
-                          key=lambda p: p.stat().st_mtime, reverse=True)
+        arquivos = list((CODEX_DIR / "sessions").rglob("rollout-*.jsonl"))
+        por_data = sorted(arquivos, key=lambda p: p.stat().st_mtime, reverse=True)[:10]
     except OSError:
         raise SemDados from None
+    recente = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+    candidatos = set(por_data) | {p for p in arquivos if p.name[8:18] >= recente}
     bruto = None
-    for arq in arquivos[:8]:                         # a sessão mais recente quase sempre já tem
+    for arq in candidatos:
         try:
-            st = arq.stat()
-            chave = (str(arq), st.st_mtime, st.st_size)
-            if _CODEX_CACHE["chave"] == chave:
-                bruto = _CODEX_CACHE["valor"]
-            else:
-                bruto = _limites_codex(arq)
-                if bruto:
-                    _CODEX_CACHE.update(chave=chave, valor=bruto)
+            achado = _limites_codex(arq)
         except OSError:
             continue
-        if bruto:
-            break
+        if achado and (not bruto or achado["updated"] > bruto["updated"]):
+            bruto = achado
     if not bruto:
         raise SemDados
     agora = time.time()
