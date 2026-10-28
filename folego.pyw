@@ -291,41 +291,51 @@ class Painter:
         P = px(self.PAD)
         h = px(self.PILL_H)
         f = font(FONT_NUM, px(13))
+        ft = font(FONT_UI, px(10))
         ring = px(15)
         probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
 
-        items = st.resumo()
-        if items:
-            labels = [f"{p:.0f}%" for p, _, _ in items]
-            tags = [t for _, t, _ in items]
-            ft = font(FONT_UI, px(10))
-            inner = px(14)
-            for lab, tag in zip(labels, tags):
-                inner += ring + px(6) + self.text_w(probe, lab, f) + px(4) + self.text_w(probe, tag, ft)
-            inner += px(14) * (len(items) - 1) + px(14)
+        linhas = st.linhas_pilula()
+        if linhas:
+            # colunas de largura fixa para os números das duas linhas ficarem alinhados
+            marca = px(6 + 8) if len(linhas) > 1 else 0          # bolinha da cor do serviço
+            janela = ring + px(6) + self.text_w(probe, "100%", f) + px(4) + self.text_w(probe, "7d", ft)
+            inner = px(14) + marca + janela * 2 + px(14) + px(14)
+            row_h = h if len(linhas) == 1 else px(24)
+            h = row_h * len(linhas) + (px(6) if len(linhas) > 1 else 0)
         else:
             msg = st.short_status()
             ft = font(FONT_UI, px(12))
             inner = px(14) + px(8) + px(8) + self.text_w(probe, msg, ft) + px(14)
         w = int(inner) + 2 * P
         img = Image.new("RGBA", (w, h + 2 * P), (0, 0, 0, 0))
-        img.alpha_composite(self.panel(w, h + 2 * P, h // 2))
+        img.alpha_composite(self.panel(w, h + 2 * P, h // 2 if not linhas or len(linhas) == 1 else px(14)))
         d = ImageDraw.Draw(img)
         cy = P + h // 2
         x = P + px(14)
-        if items:
-            for i, ((pct, _, accent), lab, tag) in enumerate(zip(items, labels, tags)):
-                img.alpha_composite(self.ring(ring, pct, max(2, px(2.6)), cor(pct, accent)),
-                                    (int(x), cy - ring // 2))
-                x += ring + px(6)
-                d.text((x, cy), lab, font=f, fill=TEXT, anchor="lm")
-                x += self.text_w(d, lab, f) + px(4)
-                d.text((x, cy + px(0.5)), tag, font=ft, fill=MUTED, anchor="lm")
-                x += self.text_w(d, tag, ft)
-                if i < len(items) - 1:
-                    x += px(7)
-                    d.line((x, cy - px(6), x, cy + px(6)), fill=(255, 255, 255, 30), width=max(1, px(1)))
-                    x += px(7)
+        if linhas:
+            topo = P + (px(3) if len(linhas) > 1 else 0)
+            for k, (accent, janelas) in enumerate(linhas):
+                cy = topo + row_h * k + row_h // 2
+                x0 = P + px(14)
+                if marca:
+                    d.ellipse((x0, cy - px(3), x0 + px(6), cy + px(3)), fill=accent)
+                    x0 += marca
+                if not janelas:
+                    d.text((x0, cy), "sem dados", font=ft, fill=FAINT, anchor="lm")
+                    continue
+                for i, (pct, tag) in enumerate(janelas):
+                    x = x0 + i * (janela + px(14))
+                    if i:
+                        d.line((x - px(7), cy - px(6), x - px(7), cy + px(6)), fill=(255, 255, 255, 30),
+                               width=max(1, px(1)))
+                    img.alpha_composite(self.ring(ring, pct, max(2, px(2.6)), cor(pct, accent)),
+                                        (int(x), cy - ring // 2))
+                    x += ring + px(6)
+                    lab = f"{pct:.0f}%"
+                    d.text((x, cy), lab, font=f, fill=TEXT, anchor="lm")
+                    x += self.text_w(d, lab, f) + px(4)
+                    d.text((x, cy + px(0.5)), tag, font=ft, fill=MUTED, anchor="lm")
         else:
             dot = px(8)
             d.ellipse((x, cy - dot // 2, x + dot, cy + dot // 2), fill=st.status_color())
@@ -555,6 +565,14 @@ class State(Fonte):
     def ativa(self):
         fs = self.fontes()
         return fs[self.aba] if self.aba < len(fs) else fs[0]
+
+    def linhas_pilula(self):
+        """Pílula: uma linha por serviço -> [(accent, [(pct, "5h"), (pct, "7d")] ou None)].
+        None quando nenhum serviço tem dado ainda."""
+        fs = self.fontes()
+        if not any(f.data for f in fs):
+            return None
+        return [(f.accent, [(f.session_pct, "5h"), (f.week_pct, "7d")] if f.data else None) for f in fs]
 
     def resumo(self):
         """Pílula: para cada janela, o maior uso entre os serviços com dado -> [(pct, tag, accent)]."""
